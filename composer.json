@@ -1,0 +1,17 @@
+{
+    "name": "catzconnect/catzconnect-php",
+    "description": "unified communication gateway",
+    "autoload": {
+        "psr-4": {
+            "CatzConnect\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Catalizo"
+        }
+    ],
+    "require": {
+        "ext-sodium": "*"
+    }
+}
