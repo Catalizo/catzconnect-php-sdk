@@ -1,17 +1,37 @@
 {
     "name": "catzconnect/catzconnect-php",
-    "description": "unified communication gateway",
-    "autoload": {
-        "psr-4": {
-            "CatzConnect\\": "src/"
-        }
-    },
+    "description": "Official PHP SDK for Catz Connect: send email, WhatsApp, push, SMS and voice messages and manage voice/video calls through one encrypted API.",
+    "type": "library",
+    "license": "ISC",
+    "keywords": [
+        "catzconnect",
+        "email",
+        "whatsapp",
+        "sms",
+        "push",
+        "voice",
+        "otp",
+        "messaging",
+        "sdk"
+    ],
+    "homepage": "https://catzconnect.com",
     "authors": [
         {
             "name": "Catalizo"
         }
     ],
+    "support": {
+        "docs": "https://catzconnect.com/docs"
+    },
     "require": {
-        "ext-sodium": "*"
+        "php": ">=7.4",
+        "ext-sodium": "*",
+        "ext-curl": "*",
+        "ext-json": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "CatzConnect\\": "src/"
+        }
     }
 }

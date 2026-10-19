@@ -8,13 +8,39 @@ use CatzConnect\Core\VerifyPayload;
 
 class CatzConnect
 {
-    public const VERSION = '1.3.0';
+    public const VERSION = '1.5.0';
 
     private HttpClient $http;
+    private ?Calls $calls = null;
+    private ?string $defaultLanguage = null;
 
-    public function __construct()
+    /**
+     * $http is for tests (a HttpClient whose transport() is overridden).
+     * $defaultLanguage is the 'language' used when a send() does not set one
+     * (en, de, ja, ar, hi, or a BCP-47 tag such as 'de-DE').
+     */
+    public function __construct(?HttpClient $http = null, ?string $defaultLanguage = null)
     {
-        $this->http = new HttpClient();
+        $this->http = $http ?? new HttpClient();
+        $this->setDefaultLanguage($defaultLanguage);
+    }
+
+    /** Sets (or, with null, clears) the default 'language'. Throws for an unsupported one. */
+    public function setDefaultLanguage(?string $language): self
+    {
+        $this->defaultLanguage = $language === null ? null : Language::normalise($language);
+        return $this;
+    }
+
+    public function getDefaultLanguage(): ?string
+    {
+        return $this->defaultLanguage;
+    }
+
+    /** Voice & Video calls: create(), token(), get(), end(). */
+    public function calls(): Calls
+    {
+        return $this->calls ??= new Calls($this->http);
     }
 
     /**
@@ -26,7 +52,7 @@ class CatzConnect
      * Normalising once, here, makes both agree.
      */
     private const CANONICAL = [
-        'channel'  => ['email' => 'Email', 'whatsapp' => 'WhatsApp', 'push' => 'Push', 'sms' => 'SMS'],
+        'channel'  => ['email' => 'Email', 'whatsapp' => 'WhatsApp', 'push' => 'Push', 'sms' => 'SMS', 'voice' => 'Voice'],
         'type'     => ['verification' => 'Verification', 'transactional' => 'Transactional', 'notification' => 'Notification', 'promotional' => 'Promotional'],
         'template' => ['otp' => 'Otp', 'custom' => 'Custom', 'notification' => 'Notification'],
     ];
@@ -39,14 +65,36 @@ class CatzConnect
 
     /**
      * The JSON body (before encryption) that send() posts for $input.
-     * Validates first.
+     * Validates first. A top-level 'language' is normalised ('de-DE' → 'de')
+     * and sent next to channel/template; without one the body is unchanged.
      */
     public static function buildPayload(array $input): array
+    {
+        $language = null;
+        if (isset($input['language'])) {
+            $language = Language::normalise($input['language']);
+        }
+        $out = self::buildChannelPayload($input);
+        if ($language !== null) {
+            $out['language'] = $language;
+        }
+        return $out;
+    }
+
+    private static function buildChannelPayload(array $input): array
     {
         VerifyPayload::verify($input);
 
         if (self::canonical('channel', $input['channel'] ?? '') === 'SMS') {
             return Sms::buildPayload(
+                $input,
+                self::canonical('type', trim((string) $input['type'])),
+                self::canonical('template', trim((string) $input['template']))
+            );
+        }
+
+        if (self::canonical('channel', trim((string) ($input['channel'] ?? ''))) === 'Voice') {
+            return Voice::buildPayload(
                 $input,
                 self::canonical('type', trim((string) $input['type'])),
                 self::canonical('template', trim((string) $input['template']))
@@ -63,6 +111,9 @@ class CatzConnect
 
     public function send(array $input): array
     {
+        if (!isset($input['language']) && $this->defaultLanguage !== null) {
+            $input['language'] = $this->defaultLanguage;
+        }
         $finalPayload = self::buildPayload($input);
 
         $encrypted = Crypto::encrypt($finalPayload);
@@ -81,5 +132,22 @@ class CatzConnect
             throw new \Exception('sendSms() is for the SMS channel, not ' . $input['channel']);
         }
         return SmsResult::fromResponse($this->send($input));
+    }
+
+    /**
+     * Places a phone call that speaks the message ('channel' may be omitted)
+     * and returns the decoded response; data.message_id is the queued call.
+     */
+    public function sendVoice(array $input): array
+    {
+        $input['channel'] = $input['channel'] ?? 'Voice';
+        if (strtolower(trim((string) $input['channel'])) !== 'voice') {
+            throw new \Exception('sendVoice() is for the Voice channel, not ' . $input['channel']);
+        }
+        $res = $this->send($input);
+        if (!isset($res['data']['message_id'])) {
+            throw new \Exception('Response has no data.message_id');
+        }
+        return $res;
     }
 }

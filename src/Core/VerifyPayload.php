@@ -175,6 +175,11 @@ class VerifyPayload
             return;
         }
 
+        if ($channel === 'voice') {
+            \CatzConnect\Voice::verify($input);
+            return;
+        }
+
         // An email template created in the panel, sent by name. The server
         // fills its {{variables}} from payload.data.
         if ($channel === 'email' && $template !== '' && !in_array($template, ['otp', 'custom', 'notification'], true)) {
