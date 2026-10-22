@@ -11,6 +11,50 @@ class VerifyPayload
         $template = strtolower($input['template'] ?? '');
         $payload = $input['payload'] ?? [];
 
+        \CatzConnect\WhatsApp::verifyTracking($payload['tracking'] ?? null, $channel);
+        \CatzConnect\PushApi::verifyTopicAndPush($payload, $channel);
+        if (isset($payload['whatsapp']) && $channel !== 'whatsapp') {
+            throw new \InvalidArgumentException("'whatsapp' applies to the WhatsApp channel only");
+        }
+
+        // WhatsApp media message: template Custom with whatsapp.media (any type).
+        if ($channel === 'whatsapp' && $template === 'custom' && isset($payload['whatsapp']['media'])) {
+            if (!isset($input['identity'])) {
+                throw new \Exception("Missing 'identity'");
+            }
+            if (!isset($payload['to'])) {
+                throw new \Exception("Missing 'to'");
+            }
+            Validators::validatePhone($payload['to']);
+            \CatzConnect\WhatsApp::verifyMedia($payload['whatsapp']['media']);
+            return;
+        }
+
+        // WhatsApp approved template, sent by its Meta name.
+        if ($channel === 'whatsapp' && $template !== 'otp' && $template !== 'custom') {
+            if (!in_array($type, ['transactional', 'verification', 'promotional', 'notification'], true)) {
+                throw new \Exception("Unsupported combination");
+            }
+            if (!preg_match(\CatzConnect\WhatsApp::TEMPLATE_NAME, (string) ($input['template'] ?? ''))) {
+                throw new \InvalidArgumentException('A WhatsApp template name is lower-case letters, digits and underscores (the name approved at Meta)');
+            }
+            if (!isset($input['identity'])) {
+                throw new \Exception("Missing 'identity'");
+            }
+            if (!isset($payload['to'])) {
+                throw new \Exception("Missing 'to'");
+            }
+            Validators::validatePhone($payload['to']);
+            if (isset($payload['otp']) && !preg_match('/^[A-Za-z0-9]{1,15}$/', (string) $payload['otp'])) {
+                throw new \InvalidArgumentException("'otp' must be up to 15 letters or digits");
+            }
+            if (isset($payload['whatsapp']['media'])) {
+                throw new \InvalidArgumentException("'whatsapp.media' goes with template Custom; use 'whatsapp.header' for a template's media");
+            }
+            \CatzConnect\WhatsApp::verifyOptions($payload['whatsapp'] ?? null);
+            return;
+        }
+
         if ($channel === 'email' && $type === 'verification' && $template === 'otp') {
 
             if (!isset($input['identity'])) {
@@ -127,7 +171,9 @@ class VerifyPayload
                 throw new \Exception("Give either 'to' (one device token) or 'external_user_id' (a user's registered devices), not both");
             }
 
-            if (!$hasTo && !$hasUser) {
+            // A broadcast / topic push has no single recipient (checked above).
+            $many = !empty($payload['push']['broadcast']) || (isset($payload['push']['topic']) && $payload['push']['topic'] !== '');
+            if (!$hasTo && !$hasUser && !$many) {
                 throw new \Exception("Missing 'to' — the device's FCM registration token — or 'external_user_id' for a user's registered devices");
             }
 

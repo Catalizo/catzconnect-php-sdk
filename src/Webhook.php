@@ -67,4 +67,41 @@ class Webhook
         }
         return false;
     }
+
+    /** Every event a webhook can subscribe to. */
+    public const EVENTS = [
+        'email.sent', 'email.failed', 'email.bounced', 'email.opened', 'email.clicked', 'email.received',
+        'whatsapp.status', 'whatsapp.inbound', 'whatsapp.read',
+        'push.sent', 'push.failed',
+        'sms.sent', 'sms.delivered', 'sms.failed', 'sms.unknown',
+        'call.ringing', 'call.started', 'call.ended', 'call.missed', 'call.declined', 'call.canceled', 'call.failed',
+        'participant.joined', 'participant.left',
+        'voice.answered', 'voice.completed', 'voice.failed', 'voice.unknown',
+        'email.complained', 'email.unsubscribed', 'push.opened', 'sms.inbound', 'sms.opt_out', 'whatsapp.opt_out',
+    ];
+
+    /**
+     * Verify the signature and decode the event: ['id', 'type', 'created_at',
+     * 'organization_id', 'test' (bool: a test-key event), 'data'].
+     *
+     * @throws \UnexpectedValueException when the signature or body is wrong.
+     */
+    public static function parseEvent(
+        string $rawBody,
+        ?string $header,
+        string $secret,
+        int $tolerance = self::DEFAULT_TOLERANCE,
+        ?int $now = null
+    ): array {
+        if (!self::verify($rawBody, $header, $secret, $tolerance, $now)) {
+            throw new \UnexpectedValueException('Invalid webhook signature');
+        }
+        $j = json_decode($rawBody, true);
+        if (!is_array($j) || !is_string($j['type'] ?? null) || !is_string($j['id'] ?? null)) {
+            throw new \UnexpectedValueException('The webhook body is not a Catz Connect event');
+        }
+        $j['data'] = is_array($j['data'] ?? null) ? $j['data'] : [];
+        $j['test'] = ($j['test'] ?? false) === true || ($j['data']['test'] ?? false) === true;
+        return $j;
+    }
 }

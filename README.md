@@ -7,16 +7,30 @@ Secure PHP SDK to send encrypted communication requests (Email OTP, etc).
 ## 🚀 Installation
 
 ```bash
-composer require catzconnect/catzconnect-php
+composer require "catzconnect/catzconnect-php:^2.0"
+```
 
+or in `composer.json`:
 
-🔐 Environment Setup
+```json
+{
+  "require": {
+    "catzconnect/catzconnect-php": "^2.0"
+  }
+}
+```
+
+## 🔐 Environment Setup
+
+```env
 CATZCONNECT_API_KEY=your_api_key
 CATZCONNECT_PRIVATE_KEY=base64_private_key
 CATZCONNECT_SERVER_PUBLIC_KEY=base64_server_public_key
+```
 
-📦 Usage for Otp
+## 📦 Usage for Otp
 
+```php
 use CatzConnect\CatzConnect;
 
 $client = new CatzConnect();
@@ -33,8 +47,9 @@ $response = $client->send([
 ]);
 
 print_r($response);
+```
 
-🌐 Language of the default OTP templates
+## 🌐 Language of the default OTP templates
 
 An optional top-level `'language'` (`en`, `de`, `ja`, `ar` or `hi`) picks the
 language of the **built-in** Otp/Verification templates for Email, SMS,
@@ -93,6 +108,13 @@ CATZCONNECT_SERVER_PUBLIC_KEY=your_server_public_key
 With vlucas/phpdotenv, the standard `Dotenv::createImmutable(__DIR__)->load()`
 works — the SDK reads `$_ENV` and `$_SERVER` as well as `getenv()`. Values are
 trimmed, so a trailing newline in a key is harmless.
+
+`CATZCONNECT_BASE_URL` (optional, default `https://api.catzconnect.com`) must be
+`https://`. Plain `http://` is accepted only for `localhost`, `127.0.0.1`,
+`[::1]` and `10.0.2.2` (local development); any other `http://` URL throws an
+`InvalidArgumentException` before anything is sent, since the API key would
+travel unencrypted. To allow it anyway set `CATZCONNECT_ALLOW_INSECURE_HTTP=1`
+or call `$catz->setAllowInsecureHttp(true)`.
 
 ## WhatsApp
 
@@ -331,3 +353,44 @@ connections; join with that provider's own SDK.
 ```bash
 php tests/run.php
 ```
+
+## Message status, retry-safe sends, test keys, hosted OTP (2.0.0)
+
+```php
+$res = $client->send([... , 'idempotencyKey' => "ship-$orderId", 'reference' => "order-$orderId"]);
+$msg = $client->messages()->get($res['data']['message_id']);          // status + events
+$s   = $client->otp()->start(['channel' => 'SMS', 'to' => '+919876543210']);
+try {
+    $client->otp()->verify(['verification_id' => $s['verification_id'], 'code' => $typed]);
+} catch (\CatzConnect\ApiException $e) {
+    if ($e->errorCode === \CatzConnect\ErrorCodes::OTP_INVALID) { $left = $e->details['attempts_remaining']; }
+}
+```
+
+WhatsApp approved templates: `'template' => 'order_update', 'payload' => ['to' => …,
+'whatsapp' => ['language' => 'en_US', 'body' => ['Ravi']]]`; media: template
+`Custom` with `'whatsapp' => ['media' => [...]]`. Test keys are validated but
+never delivered or billed. Management API: `$client->manage()->call('webhooks',
+'save', [...])` with a key that has the management scope. Webhooks:
+`\CatzConnect\Webhook::parseEvent($raw, $header, $secret)['test']`.
+
+## Email topics, push broadcasts and topics (2.0.0)
+
+```php
+// Email under a subscription topic: its opt-outs apply.
+$client->send(['channel' => 'Email', 'type' => 'Transactional', 'template' => 'Custom', 'identity' => 'news',
+    'payload' => ['to' => 'ana@example.com', 'subject' => 'October', 'body' => '<p>…</p>', 'topic' => 'newsletter']]);
+
+// Push to a topic, later (server key).
+$res = $client->send(['channel' => 'Push', 'type' => 'Notification', 'template' => 'Notification', 'identity' => 'my-firebase',
+    'payload' => ['body' => 'Today only', 'push' => ['topic' => 'deals', 'send_at' => new DateTimeImmutable('2026-11-02 09:00 UTC')]]]);
+$client->push()->broadcast($res['data']['broadcast_id']);   // status, queued, over_quota…
+$client->push()->subscribe(['identity' => 'my-firebase', 'topic' => 'deals', 'external_user_id' => 'u1']);
+$client->pushDevices()->subscribeTopics($publishableKey, $fcmToken, ['deals']);   // in the app
+$client->manage()->addSuppression('whatsapp', '+919876543210');
+$client->manage()->addSuppression('email', 'ana@example.com', ['topic' => 'newsletter']);
+```
+
+App and test keys are refused for broadcasts / topics. `Webhook::EVENTS` includes
+`email.complained`, `email.unsubscribed`, `push.opened`, `sms.inbound`,
+`sms.opt_out`, `whatsapp.opt_out`.

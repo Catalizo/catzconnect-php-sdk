@@ -13,13 +13,27 @@ class ApiException extends \Exception
     public int $status;
     public ?string $errorCode;
     public string $body;
+    /**
+     * The JSON refusal when the body was JSON, with extra fields such as
+     * attempts_remaining (otp_invalid) or retry_after (otp_resend_cooldown).
+     */
+    public ?array $details = null;
 
-    public function __construct(int $status, string $message, string $body, ?string $errorCode = null)
+    /**
+     * `$exceptionCode` is what getCode() returns; default the HTTP status.
+     * send() passes 0, which is what its refusals returned before they
+     * became ApiException (2.0.0): read the status from `->status`.
+     */
+    public function __construct(int $status, string $message, string $body, ?string $errorCode = null, ?int $exceptionCode = null)
     {
-        parent::__construct($message, $status);
+        parent::__construct($message, $exceptionCode ?? $status);
         $this->status = $status;
         $this->errorCode = $errorCode;
         $this->body = $body;
+        $j = json_decode($body, true);
+        if (is_array($j)) {
+            $this->details = $j;
+        }
     }
 
     public static function fromBody(int $status, string $body): self
